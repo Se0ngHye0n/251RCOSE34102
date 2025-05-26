@@ -30,7 +30,8 @@ typedef struct {
 typedef struct {
     Process** process;
     int capacity;
-    int front, rear;
+    int front;
+    int rear;
     int count;
 } Process_Queue;
 
@@ -89,8 +90,64 @@ Process* dequeue(Process_Queue* q) {
     q->front = (q->front + 1) % q->capacity;
     q->count--;
 
+    // queue가 비면 front, rear 초기화
+    if (q->count == 0) {
+        q->front = 0;
+        q->rear = 0;
+    }
+
     return p;
 }
+
+void dequeue_from_waiting_queue(Process_Queue* q, Process* p) {
+    int idx = q->front;
+    int target = -1;
+
+    if (q->count == 0) {
+        return;
+    }
+
+    // process p가 큐에 있는지 검사
+    for (int i = 0; i < q->count; i++) {
+        if (q->process[idx] == p) {
+            target = idx;
+
+            break;
+        }
+
+        idx = (idx + 1) % q->capacity;
+    }
+
+    if (target == -1) {
+        return;
+    }
+
+    int index = target;
+
+    // process p를 queue에서 제거
+    while (index != q->rear) {
+        int next = (index + 1) % q->capacity;
+        q->process[index] = q->process[next];
+        index = next;
+    }
+
+    // queue의 rear, count 조정
+    if (q->rear == 0) {
+        q->rear = q->capacity - 1;
+    }
+    else {
+        q->rear--;
+    }
+
+    q->count--;
+
+    // queue가 비면 front, rear 초기화
+    if (q->count == 0) {
+        q->front = 0;
+        q->rear = 0;
+    }
+}
+
 
 Process_Queue ready_queue;
 Process_Queue waiting_queue;
@@ -103,6 +160,9 @@ typedef struct {
     int type; // 1. Process Arrival  2. CPU Complete  3. IO Complete
     Process* p;
 } Event;
+
+static Event event_heap[MAX_EVENTS + 1];
+static int event_count = 0;
 
 void push_event(int time, int type, Process* p) {
     if (event_count >= MAX_EVENTS) {
@@ -157,9 +217,6 @@ Event pop_event() {
     }
     return e;
 }
-
-static Event event_heap[MAX_EVENTS + 1];
-static int event_count = 0;
 
 
 int gantt[MAX_TIME];
@@ -218,7 +275,7 @@ int main(void) {
     evaluation();
 
     initialization();
-    printf("\nPreemptive Priority Scheduling\n");
+    printf("\nRound Robin Scheduling\n");
     scheduling_Round_Robin();
     print_gantt();
     evaluation();
@@ -239,7 +296,7 @@ void create_process() {
         p->arrival_time = rand() % 10; // 0 ~ 9
         p->cpu_burst = (rand() % 9) + 2; // 2 ~ 10
         p->io_burst = (rand() % 5) + 1; // 1 ~ 5
-        p->io_request_time = (rand() % (p->cpu_burst - 1)) + 1; // 1 ~ (cpu_burst - 1), 1번만 실행
+        p->io_request_time = (rand() % (p->cpu_burst - 1)) + 1; // 1 ~ (cpu_burst - 1), cpu burst 중 1번만 실행
         p->start_time = -1;
         p->completion_time = 0;
         p->waiting_time = 0;
@@ -264,6 +321,8 @@ void print_process_list() {
 void initialization() {
     init(&ready_queue, QUEUE_SIZE);
     init(&waiting_queue, QUEUE_SIZE);
+
+    event_count = 0;
 
     event_count = 0;
 
@@ -360,6 +419,7 @@ void scheduling_FCFS() {
             // 3. IO Complete
             else if (e.type == 3) {
                 p->remaining_io = 0;
+                dequeue_from_waiting_queue(&waiting_queue, p);
                 enqueue(&ready_queue, p);
             }
 
@@ -488,6 +548,7 @@ void scheduling_Non_Preemptive_SJF() {
             // 3. IO Complete
             else if (e.type == 3) {
                 p->remaining_io = 0;
+                dequeue_from_waiting_queue(&waiting_queue, p);
                 enqueue(&ready_queue, p);
             }
 
@@ -535,6 +596,12 @@ void scheduling_Non_Preemptive_SJF() {
             }
 
             ready_queue.count--;
+
+            // ready_queue가 비면 front, rear 초기화
+            if (ready_queue.count == 0) {
+                ready_queue.front = 0;
+                ready_queue.rear = 0;
+            }
 
             // 처음 도착한 process
             if (executing_process->start_time < 0) {
@@ -651,6 +718,7 @@ void scheduling_Preemptive_SJF() {
             // 3. IO Complete
             else if (e.type == 3) {
                 p->remaining_io = 0;
+                dequeue_from_waiting_queue(&waiting_queue, p);
                 enqueue(&ready_queue, p);
             }
 
@@ -726,6 +794,12 @@ void scheduling_Preemptive_SJF() {
             }
 
             ready_queue.count--;
+
+            // ready_queue가 비면 front, rear 초기화
+            if (ready_queue.count == 0) {
+                ready_queue.front = 0;
+                ready_queue.rear = 0;
+            }
 
             // 처음 도착한 process
             if (executing_process->start_time < 0) {
@@ -838,6 +912,7 @@ void scheduling_Non_Preemptive_Priority() {
             // 3. IO Complete
             else if (e.type == 3) {
                 p->remaining_io = 0;
+                dequeue_from_waiting_queue(&waiting_queue, p);
                 enqueue(&ready_queue, p);
             }
 
@@ -885,6 +960,12 @@ void scheduling_Non_Preemptive_Priority() {
             }
 
             ready_queue.count--;
+
+            // ready_queue가 비면 front, rear 초기화
+            if (ready_queue.count == 0) {
+                ready_queue.front = 0;
+                ready_queue.rear = 0;
+            }
 
             // 처음 도착한 process
             if (executing_process->start_time < 0) {
@@ -1002,6 +1083,7 @@ void scheduling_Preemptive_Priority() {
             // 3. IO Complete
             else if (e.type == 3) {
                 p->remaining_io = 0;
+                dequeue_from_waiting_queue(&waiting_queue, p);
                 enqueue(&ready_queue, p);
             }
 
@@ -1076,6 +1158,12 @@ void scheduling_Preemptive_Priority() {
             }
 
             ready_queue.count--;
+
+            // ready_queue가 비면 front, rear 초기화
+            if (ready_queue.count == 0) {
+                ready_queue.front = 0;
+                ready_queue.rear = 0;
+            }
 
             // 처음 도착한 process
             if (executing_process->start_time < 0) {
@@ -1193,6 +1281,7 @@ void scheduling_Round_Robin() {
             // 3. IO Complete
             else if (e.type == 3) {
                 p->remaining_io = 0;
+                dequeue_from_waiting_queue(&waiting_queue, p);
                 enqueue(&ready_queue, p);
             }
 
@@ -1264,8 +1353,8 @@ void print_gantt() {
     for (int t = 0; t <= gantt_end; t++) {
         printf("%*d", width, t);
     }
-
     printf("\n ");
+
     for (int t = 0; t <= gantt_end; t++) {
         for (int i = 0; i < width; i++) {
             printf("-");
