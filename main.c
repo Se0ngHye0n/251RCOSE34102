@@ -35,6 +35,11 @@ typedef struct {
     int count;
 } Process_Queue;
 
+Process_Queue ready_queue;
+Process_Queue waiting_queue;
+
+Process process_list[PROCESS_COUNT];
+
 void init(Process_Queue* q, int initial_capacity) {
     q->process = malloc(sizeof(Process*) * initial_capacity);
     q->capacity = initial_capacity;
@@ -149,19 +154,13 @@ void dequeue_from_waiting_queue(Process_Queue* q, Process* p) {
 }
 
 
-Process_Queue ready_queue;
-Process_Queue waiting_queue;
-
-Process process_list[PROCESS_COUNT];
-
-
 typedef struct {
     int time;
     int type; // 1. Process Arrival  2. CPU Complete  3. IO Complete
     Process* p;
-} Event;
+} Event_Heap;
 
-static Event event_heap[MAX_EVENTS + 1];
+static Event_Heap event_heap[MAX_EVENTS + 1];
 static int event_count = 0;
 
 void push_event(int time, int type, Process* p) {
@@ -170,6 +169,7 @@ void push_event(int time, int type, Process* p) {
     }
 
     int index = ++event_count;
+
     event_heap[index].time = time;
     event_heap[index].type = type;
     event_heap[index].p = p;
@@ -179,7 +179,7 @@ void push_event(int time, int type, Process* p) {
             break;
         }
         else {
-            Event tmp = event_heap[index / 2];
+            Event_Heap tmp = event_heap[index / 2];
             event_heap[index / 2] = event_heap[index];
             event_heap[index] = tmp;
             index = index / 2;
@@ -187,8 +187,8 @@ void push_event(int time, int type, Process* p) {
     }
 }
 
-Event pop_event() {
-    Event e = event_heap[1];
+Event_Heap pop_event() {
+    Event_Heap e = event_heap[1];
     event_heap[1] = event_heap[event_count--];
     int index = 1;
 
@@ -209,7 +209,7 @@ Event pop_event() {
             break;
         }
         else {
-            Event tmp = event_heap[index];
+            Event_Heap tmp = event_heap[index];
             event_heap[index] = event_heap[smallest];
             event_heap[smallest] = tmp;
             index = smallest;
@@ -324,8 +324,6 @@ void initialization() {
 
     event_count = 0;
 
-    event_count = 0;
-
     for (int i = 0; i < MAX_TIME; i++) {
         gantt[i] = 0;
         gantt_io[i] = 0;
@@ -359,7 +357,7 @@ void scheduling_FCFS() {
     }
 
     while (event_count > 0 && completed_process_count < PROCESS_COUNT) {
-        Event e = pop_event();
+        Event_Heap e = pop_event();
 
         int now = e.time;
         int to_io; // IO request까지 남은 시간
@@ -489,7 +487,7 @@ void scheduling_Non_Preemptive_SJF() {
     }
 
     while (event_count > 0 && completed_process_count < PROCESS_COUNT) {
-        Event e = pop_event();
+        Event_Heap e = pop_event();
         int now = e.time;
         int to_io; // IO request까지 남은 시간
         int run; // CPU 작업을 수행할 시간
@@ -655,7 +653,7 @@ void scheduling_Preemptive_SJF() {
     }
 
     while (event_count > 0 && completed_process_count < PROCESS_COUNT) {
-        Event e = pop_event();
+        Event_Heap e = pop_event();
         int now = e.time;
         int to_io; // IO request까지 남은 시간
         int run; // CPU 작업을 수행할 시간
@@ -853,7 +851,7 @@ void scheduling_Non_Preemptive_Priority() {
     }
 
     while (event_count > 0 && completed_process_count < PROCESS_COUNT) {
-        Event e = pop_event();
+        Event_Heap e = pop_event();
         int now = e.time;
         int to_io; // IO request까지 남은 시간
         int run; // CPU 작업을 수행할 시간
@@ -1020,7 +1018,7 @@ void scheduling_Preemptive_Priority() {
     }
 
     while (event_count > 0 && completed_process_count < PROCESS_COUNT) {
-        Event e = pop_event();
+        Event_Heap e = pop_event();
         int now = e.time;
         int to_io; // IO request까지 남은 시간
         int run; // CPU 작업을 수행할 시간
@@ -1218,7 +1216,7 @@ void scheduling_Round_Robin() {
     }
 
     while (event_count > 0 && completed_process_count < PROCESS_COUNT) {
-        Event e = pop_event();
+        Event_Heap e = pop_event();
         int now = e.time;
         int to_io; // IO request까지 남은 시간
         int run; // CPU 작업을 수행할 시간
@@ -1307,13 +1305,18 @@ void scheduling_Round_Robin() {
 
             // process가 IO 작업 이후 다시 CPU 작업을 수행하는 경우
             if (to_io <= 0) {
-                run = executing_process->remaining_cpu;
+                // TIME QUANTUM만큼 실행, 만약 남은 cpu burst가 더 작으면 남은 cpu burst만큼 실행
+                run = TIME_QUANTUM;
+
+                if (executing_process->remaining_cpu < run) {
+                    run = executing_process->remaining_cpu;
+                }
             }
             // IO request가 TIME QUANTUM 전에 발생할 때
             else if (to_io < TIME_QUANTUM) {
                 run = to_io;
             }
-            // TIME QUANTUM만큼 실행, 만약 남은 cpu burst가 더 작으면 남은 cpu burst만큼 실행
+            // process가 IO 작업을 아직 수행하지 않은 경우, TIME QUANTUM만큼 실행, 만약 남은 cpu burst가 더 작으면 남은 cpu burst만큼 실행
             else {
                 run = TIME_QUANTUM;
 
